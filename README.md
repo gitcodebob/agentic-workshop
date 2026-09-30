@@ -69,3 +69,7 @@ While it runs you can:
 - add items to the list;
 - answer the decisions it brings up;
 - ask it to deploy. It never deploys on its own.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
