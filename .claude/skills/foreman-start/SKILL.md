@@ -14,7 +14,8 @@ Talk to the user in their language, and write the worker prompts in it too.
 
 - The paseo MCP tools must be available (`mcp__paseo__create_workspace`, `create_agent`,
   `get_agent_status`, `get_agent_activity`, `send_agent_prompt`, `respond_to_permission`,
-  `archive_workspace`, `create_heartbeat`, `delete_heartbeat`, `list_workspaces`, `list_agents`).
+  `archive_workspace`, `create_heartbeat`, `delete_heartbeat`, `list_workspaces`, `list_agents`,
+  `list_profiles`, `update_agent`).
   If they are deferred, load them with ToolSearch first.
 - `git` with a remote, and `gh` authenticated for that remote.
 - Missing one of these? Stop and say which. Don't improvise another orchestration.
@@ -36,8 +37,8 @@ prompt must be self-contained. Pass attachments such as screenshots as absolute 
 
 - Find your own workspace: the `list_workspaces` entry whose `cwd` is your working directory.
   **Never archive it.** Everything you coordinate runs from there.
-- Find your own agent (`list_agents` with your `cwd`). Workers get the same provider, model,
-  thinking option and mode (`auto` when available), unless the user says otherwise.
+- Find your own agent (`list_agents` with your `cwd`). Its settings are the workers' fallback
+  when paseo has no profiles (§4).
 - Find the default branch: `git remote show origin | sed -n 's/.*HEAD branch: //p'`.
   Run `git fetch` before every branch-off.
 
@@ -65,7 +66,7 @@ heartbeats: check <id> · resume <id> (+90 min), <id> (+390 min)
 -->
 ```
 
-Mark running items in the list itself: `← running: <workspace id> / agent <agent id>`.
+Mark running items in the list itself: `← running: <workspace id> / agent <agent id> / <profile>`.
 Mark finished ones `- [x] … — PR #<n>`.
 
 ## 4. Start a workspace
@@ -73,10 +74,15 @@ Mark finished ones `- [x] … — PR #<n>`.
 1. `create_workspace`: `isolation: worktree`, `mode: branch-off`, `baseBranch: origin/<default>`,
    a descriptive `branchName` (`feature/…`, `fix/…`, `tweak/…`), and a short title.
 2. Check the worktree's `git log -1` against `origin/<default>`.
-3. `create_agent` in that workspace with the template in §9. Fill in the context from your own
-   quick look: where to start, what not to touch, what follows in the same lane, and what the user
-   decided.
-4. Update the foreman block and the item marker.
+3. Pick a paseo profile for this item. Run `list_profiles` each time, because the user edits them.
+   Choose the profile whose `notes` best fit the item's kind and weight. No profiles? Use your own
+   agent's settings. A choice the user states always wins.
+4. `create_agent` in that workspace with the template in §9. Pass the profile's
+   `<provider>/<model>` as `provider`, plus its `thinkingOptionId`, `featureValues` (as `features`)
+   and `modeId`. A worker can't wait for approvals: if that mode prompts for them, use `auto`.
+   Fill in the context from your own quick look: where to start, what not to touch, what follows
+   in the same lane, and what the user decided.
+5. Update the foreman block and the item marker, including the profile name.
 
 ## 5. Timers
 
@@ -105,6 +111,8 @@ Act on every notification and every heartbeat.
 - **Idle and nothing running** → nudge with `send_agent_prompt`.
 - **Stopped by a usage limit** → "Continue where you left off." If resuming fails, archive the
   workspace and start a fresh one on the same item.
+- **Out of its depth** (circling, repeating a failed fix) → raise its model or thinking option with
+  `update_agent` (same provider only), and note the change in the item marker.
 
 **When a workspace is done:**
 

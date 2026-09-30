@@ -18,6 +18,7 @@ Each workspace does the whole job itself:
 The foreman:
 - plans the order by **file conflict**, so parallel workspaces never edit the same files;
 - writes self-contained prompts;
+- gives each workspace the paseo agent profile whose notes fit the item;
 - watches with heartbeats, catching missed signals, pending permission requests and usage-limit stalls;
 - checks each merge itself;
 - archives the workspace, ticks the item off with its PR number, and reports to you.
@@ -29,6 +30,8 @@ resumes a cycle after a restart or a lost context.
 
 - The paseo MCP server, with workspaces, agents and heartbeats.
 - `git` with a remote, and the GitHub CLI `gh`, authenticated.
+- Optional: paseo agent profiles, each with notes on what it is for. Without them, the workers
+  copy the foreman's own settings.
 - Optional: a `merge-to-main` skill in the workers' client. Without it, the workers merge with
   plain `gh`.
 
