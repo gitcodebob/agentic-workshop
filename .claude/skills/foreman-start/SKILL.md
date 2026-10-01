@@ -52,8 +52,17 @@ don't read the whole codebase.
   One of them would have to re-baseline blindly.
 - At most two workspaces at a time, unless the user sets another limit. At most one of them
   may be browser-heavy.
+- Before you raise the limit, look at the machine: cores, free memory, and whether /tmp is a tmpfs
+  (then it counts as RAM; caches there grow with every new worktree). Clean stale caches first.
+- Per worker, one heavy step at a time: a verification chain, a browser run or a review subagent,
+  never two at once. Put that rule in every worker prompt.
 - Order within a lane: dependencies first, then the user's order.
+- An item so big that it holds up a lane: split it by the files each half touches, so the halves
+  can run side by side.
 - Items that only an answer from the user can unblock wait. Ask, and plan around them.
+- Find out which verification stages the project has (`package.json` scripts, CLAUDE.md) and
+  record them in the foreman block. Then every worker prompt names the right command instead of
+  "full verification". A project with fewer stages leaves the rest out.
 
 Write the plan as a block at the top of the TODO file, and keep it current. It survives context loss:
 
@@ -61,8 +70,9 @@ Write the plan as a block at the top of the TODO file, and keep it current. It s
 <!-- foreman
 own workspace: <id> (never archive)
 default branch: <branch> · max parallel: 2
+verify: fast=<command> · pre-merge=<command> · deploy=<command>
 lanes: A (<shared files>): <item> → <item> · B: <item> → <item>
-heartbeats: check <id> · resume <id> (+90 min), <id> (+390 min)
+heartbeats: check <id> · resume <id> (every 5 h)
 -->
 ```
 
@@ -81,7 +91,8 @@ Mark finished ones `- [x] … — PR #<n>`.
    `<provider>/<model>` as `provider`, plus its `thinkingOptionId`, `featureValues` (as `features`)
    and `modeId`. A worker can't wait for approvals: if that mode prompts for them, use `auto`.
    Fill in the context from your own quick look: where to start, what not to touch, what follows
-   in the same lane, and what the user decided.
+   in the same lane, what the user decided, the verification commands from the foreman block, and
+   the open ends that merged items in this lane left for this one.
 5. Update the foreman block and the item marker, including the profile name.
 
 ## 5. Timers
@@ -89,8 +100,8 @@ Mark finished ones `- [x] … — PR #<n>`.
 Create these with `create_heartbeat`, cadence in UTC (check `date -u`):
 
 - **Check, every 10 minutes**, `expiresIn` 24 h. Prompt: §10 A.
-- **Resume, once, at +90 min and at +390 min** from the start (`maxRuns: 1`). These catch
-  workspaces stopped by a usage limit. Prompt: §10 B.
+- **Resume, every 5 hours** (cron `0 */5 * * *`), with the same `expiresIn` as the check. It
+  catches workspaces stopped by a usage limit, however long the cycle runs. Prompt: §10 B.
 
 Every heartbeat prompt names the TODO path and your own workspace id as never-archive.
 Replace heartbeats when their instructions change, and delete them all when the list is done.
@@ -108,9 +119,14 @@ Act on every notification and every heartbeat.
 - **Permission requests don't always reach you.** Check `pendingPermissions` on every heartbeat.
   Inspect the target before you allow anything destructive. For example, is that path a symlink,
   or the real directory it points to? Deny what touches shared state or other checkouts.
-- **Idle and nothing running** → nudge with `send_agent_prompt`.
-- **Stopped by a usage limit** → "Continue where you left off." If resuming fails, archive the
-  workspace and start a fresh one on the same item.
+- **Idle and nothing running** → nudge with `send_agent_prompt`. Phrase every nudge or correction
+  as a continuation: "Keep going; also …". A worker reads a bare correction as a stop.
+- **All workers idle at the same moment, without a final report** → the daemon restarted (check
+  its log for an OOM). Uncommitted work survives in the worktrees. Resume each with what was running
+  and lower the parallel limit until memory allows it.
+- **Stopped by a usage limit** → "Continue where you left off." If resuming fails and the worktree
+  holds uncommitted work, start an agent of another provider in the same workspace with a handover
+  prompt (what is done, what remains). Archive and start fresh only when the worktree is clean.
 - **Out of its depth** (circling, repeating a failed fix) → raise its model or thinking option with
   `update_agent` (same provider only), and note the change in the item marker.
 
@@ -127,6 +143,8 @@ Act on every notification and every heartbeat.
    - how to check it live;
    - decisions they need to make.
 5. Findings outside the item are candidate items. Propose them; add them only when the user agrees.
+   A finding that belongs to an item that is still open goes straight into that item's text, so
+   its worker inherits it.
 6. Start the next item that doesn't conflict with what is still running.
 
 **Between items**, give a short status when the user hasn't heard from you in a while. Never
@@ -136,8 +154,9 @@ invent a worker's result.
 
 - **The user adds items:** append them in the file's language under a fitting heading, slot
   them into the lanes, and start them if a slot is free.
-- **The user answers a decision:** pass it to the running worker (`send_agent_prompt`), or record
-  it in the item for the one that follows. Record product decisions where the project keeps them.
+- **The user answers a decision:** pass it to the running worker (`send_agent_prompt`, phrased as
+  a continuation, §6), or record it in the item for the one that follows. Record product
+  decisions where the project keeps them.
 - **Deploying:** only when the user asks. Use the project's deploy procedure if it has one, and
   verify that what is live is the build you made.
 - **A test run fails on the environment** (full disk, overloaded machine), not on the code:
@@ -148,9 +167,16 @@ invent a worker's result.
 When the last item is ticked:
 
 1. Delete your heartbeats.
-2. Leave your own workspace alone.
-3. Give one summary:
+2. Workers don't touch the project's docs; they report what belongs there. If they reported
+   anything, do one docs pass yourself, as a docs-only item, so the final check runs on the final
+   tree.
+3. Run the project's deploy-level verification (`deploy=` in the foreman block, e.g. end-to-end
+   tests and recordings) once, on an up-to-date default branch. That is the one moment for it.
+   A failure on the code is a candidate item: propose it, don't fix it yourself.
+4. Leave your own workspace alone.
+5. Give one summary:
    - every PR;
+   - the result of the deploy-level verification;
    - what is live and what isn't;
    - the open decisions;
    - the candidate items.
@@ -170,6 +196,7 @@ of a TODO list. A foreman agent coordinates the list; you deliver this one item,
 - <where to start: files, modules, earlier PRs on this subject>
 - <what not to touch: files that other running workspaces own; the next items in this lane>
 - <constraints: shared machine limits, snapshot or golden tests, decisions the user made>
+- <verification: the exact fast check and pre-merge check, from the foreman block>
 
 ## How to work
 - Read the project instructions (CLAUDE.md, AGENTS.md) first and follow them. Install
@@ -177,25 +204,39 @@ of a TODO list. A foreman agent coordinates the list; you deliver this one item,
 - Prove every behaviour change with a test that you first see fail on the old code. For a visual
   effect, measure rendered pixels with and without the effect; a formula mirrored in a unit test
   proves nothing.
+- A new end-to-end test: run only that test (filter by name) to see it red and green, never the
+  whole file.
 - The machine is shared with other workspaces. Queue heavy test runs the way the project
   prescribes. Run at most one browser at a time.
+- One heavy step at a time: a verification chain, a browser run or a review subagent, never two
+  at once.
 - Change nothing outside your worktree. Leave symlinks you create into other checkouts in place:
   the foreman cleans up when archiving, and a deletion that needs permission stalls you.
+- Don't write to the user's memory, docs or other shared notes. Put what's worth keeping in your
+  report; the foreman decides where it goes.
 - Don't deploy. You can't ask the user anything: make a defensible choice and report it.
 
 ## Finish
-1. Run the project's full verification until it is green.
+1. While building, run only targeted tests. When the diff is ready for review, run the project's
+   fast check once.
 2. Start a review subagent (Agent tool) that critically reviews your diff against the item and
-   the project instructions. Address its findings and repeat until it approves.
-3. Once it approves, run the merge-to-main skill: commit, merge the default branch in, resolve
-   conflicts, open a PR and merge it. No such skill? Do the same with git and
-   `gh pr create --fill` / `gh pr merge --merge`, and never merge through a failing check.
-4. End with a short report:
+   the project instructions. It reads the diff and may run targeted tests to prove a finding. It does
+   not run the project's verification chain or browser tests. Address its findings; ask for a second
+   round only if the first found something blocking.
+3. Merge the default branch into your branch. Then run the project's pre-merge check ONCE on that
+   merged tree (queued, if the project has a queue). Never run the deploy-level suite (end-to-end,
+   recordings): the foreman runs that once at the end of the cycle.
+4. Green? Run the merge-to-main skill: commit, merge the default branch in, resolve conflicts,
+   open a PR and merge it. Don't re-run the check after the merge. If the skill still brings in
+   new commits from the default branch, run the fast check once more, not the chain. No such
+   skill? Do the same with git and `gh pr create --fill` / `gh pr merge --merge`, and never merge
+   through a failing check.
+5. End with a short report:
    - the PR number and whether it is merged;
    - the choices you made;
    - the knobs to tune;
    - how the user checks it live;
-   - anything you found outside this item.
+   - anything you found outside this item, and anything worth keeping for docs or memory.
    If merging failed, say so explicitly, with the reason.
 ```
 
@@ -207,15 +248,17 @@ of a TODO list. A foreman agent coordinates the list; you deliver this one item,
 Foreman check: read the foreman block in <TODO path>. For every running workspace, run
 get_agent_status (look at pendingPermissions) and get_agent_activity. Done (a final report with
 a merged PR, or a failed merge)? Close it out per foreman-start §6 and start the next item. Stuck
-on a permission? Inspect it and answer. Idle with nothing running? Nudge it. Never archive
+on a permission? Inspect it and answer. Idle with nothing running? Nudge it, phrased as a
+continuation. All idle at once without a report? Treat it as a daemon restart (§6). Never archive
 <own workspace id>. Don't deploy. If nothing changed, answer in one line.
 ```
 
-**B. Resume (+90 and +390 min)**
+**B. Resume (every 5 h)**
 
 ```
 Foreman resume check: read the foreman block in <TODO path>. Did any running workspace stop on
 a usage or token limit? Resume it with send_agent_prompt ("Continue where you left off"). If that
-fails, archive it and start a fresh workspace on the same item. Then apply the check in
-foreman-start §6. Never archive <own workspace id>.
+fails and its worktree holds uncommitted work, start an agent of another provider in the same
+workspace with a handover prompt (what is done, what remains); archive and start fresh only when
+the worktree is clean. Then apply the check in foreman-start §6. Never archive <own workspace id>.
 ```

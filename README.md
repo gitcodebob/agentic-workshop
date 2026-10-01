@@ -11,17 +11,22 @@ its own agent. At most two workspaces run at a time.
 Each workspace does the whole job itself:
 - implement the item;
 - prove it with a test that first fails on the old code;
-- run the project's verification;
-- get a review subagent to approve;
+- run the project's fast check once, when the diff is ready for review;
+- get a review subagent to review the diff;
+- run the pre-merge check once, on the tree merged with the default branch;
 - merge through a PR.
 
 The foreman:
 - plans the order by **file conflict**, so parallel workspaces never edit the same files;
+- reads the project's verification stages and names the right command in every prompt, so each
+  stage runs once, when it proves something new;
 - writes self-contained prompts;
 - gives each workspace the paseo agent profile whose notes fit the item;
-- watches with heartbeats, catching missed signals, pending permission requests and usage-limit stalls;
+- watches with heartbeats, catching missed signals, pending permission requests, usage-limit
+  stalls and daemon restarts;
 - checks each merge itself;
-- archives the workspace, ticks the item off with its PR number, and reports to you.
+- archives the workspace, ticks the item off with its PR number, and reports to you;
+- runs the deploy-level check (end-to-end tests, recordings) once at the end of the cycle.
 
 It keeps its state in a comment block at the top of the TODO file. So `/foreman-start` also
 resumes a cycle after a restart or a lost context.
