@@ -78,6 +78,30 @@ While it runs you can:
 - answer the decisions it brings up;
 - ask it to deploy. It never deploys on its own.
 
+## jira-cli
+
+Gets an agent working with Jira through [jira-cli](https://github.com/ankitpokhrel/jira-cli), the
+`jira` command. The skill:
+- checks that `jira` is installed, and installs it on request: Homebrew, Scoop, or on Linux the
+  newest release binary with its checksum verified;
+- checks the login with `jira me`, and walks you through the API token and `jira init` in your own
+  terminal, so the token never passes through the chat;
+- makes the agent read the jira-cli authors' own agent rules (`llm.md`) before its first command;
+- picks the right Jira project when you have more than one.
+
+Needs `curl` for the Linux install, and a Jira API token. Install it like `foreman-start` above,
+with `jira-cli` as the folder. Then ask about a ticket, or run `/jira-cli`.
+
+`llm.md` is an unmodified copy of upstream's, taken at commit `e74646e` (22 Sep 2026). It is kept
+in the skill so nothing depends on GitHub at run time. To refresh both copies, then update the
+commit here:
+
+```sh
+for d in .claude .agents; do gh api repos/ankitpokhrel/jira-cli/contents/llm.md \
+  -H 'Accept: application/vnd.github.raw' > $d/skills/jira-cli/llm.md; done
+```
+
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). The `llm.md` in the jira-cli skill is © 2022 Ankit Pokhrel, also MIT,
+copied from [jira-cli](https://github.com/ankitpokhrel/jira-cli).
