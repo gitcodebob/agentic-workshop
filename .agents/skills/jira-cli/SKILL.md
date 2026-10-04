@@ -38,8 +38,13 @@ Other methods (Nix, Docker, BSD): the [upstream install page](https://github.com
 
 `jira me` prints the user name. That works? Go to step 3.
 
-No config or a 401? The user must do the setup in their own terminal. You cannot answer its prompts,
-and the token must never pass through this chat. Give them these steps:
+"The tool needs a Jira API token", but the user already did the setup below? **This case is for a token
+held in the env file `~/.config/jira-cli/env`.** Your shell is non-interactive and skipped the profile
+that loads it. Run `. ~/.config/jira-cli/env && jira me`. That works? Begin every later `jira` command
+the same way. A token from `.netrc` or the keychain needs none of this.
+
+Still failing, or no env file? The user must do the setup in their own terminal. You cannot answer its
+prompts, and the token must never pass through this chat. Give them these steps:
 
 1. Create a token. **Jira Cloud:** https://id.atlassian.com/manage-profile/security/api-tokens.
    **Self-hosted:** a personal access token from the Jira profile (also `export JIRA_AUTH_TYPE=bearer`),
