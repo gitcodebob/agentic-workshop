@@ -87,9 +87,10 @@ Gets an agent working with Jira through [jira-cli](https://github.com/ankitpokhr
 - checks the login with `jira me`, and walks you through the API token and `jira init` in your own
   terminal, so the token never passes through the chat;
 - makes the agent read the jira-cli authors' own agent rules (`llm.md`) before its first command;
-- picks the right Jira project when you have more than one.
+- picks the right Jira project when you have more than one;
+- downloads ticket attachments such as screenshots, which neither `jira-cli` nor Atlassian's `acli` can.
 
-Needs `curl` for the Linux install, and a Jira API token. Install it like `foreman-start` above,
+Needs `curl` (Linux install, attachments), `python3` (attachments), and a Jira API token. Install it like `foreman-start` above,
 with `jira-cli` as the folder. Then ask about a ticket, or run `/jira-cli`.
 
 `llm.md` is an unmodified copy of upstream's, taken at commit `e74646e` (22 Sep 2026). It is kept

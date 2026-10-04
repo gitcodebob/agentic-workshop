@@ -1,6 +1,6 @@
 ---
 name: jira-cli
-description: Install, check and use jira-cli (the `jira` command, github.com/ankitpokhrel/jira-cli) to read and change Jira issues from the terminal. Use for any request about Jira tickets, issues, epics, sprints or boards, for "set up jira-cli", "is jira working", and before running any `jira` command. Not for Atlassian's own `acli`.
+description: Install, check and use jira-cli (the `jira` command, github.com/ankitpokhrel/jira-cli) to read and change Jira issues from the terminal, and to download ticket attachments such as screenshots. Use for any request about Jira tickets, issues, epics, sprints, boards or attachments, for "set up jira-cli", "is jira working", and before running any `jira` command. Not for Atlassian's own `acli`.
 ---
 
 # jira-cli
@@ -76,3 +76,35 @@ https://github.com/ankitpokhrel/jira-cli/blob/main/llm.md, kept here so the skil
 2. One-off: `jira issue list -p KEY`. Standing: `JIRA_CONFIG_FILE=<path>` or `-c <path>`.
 3. Still unclear? Ask. Do not rerun `jira init` to switch project: that overwrites the shared config.
    A second config is made with `JIRA_CONFIG_FILE=~/.config/.jira/other.yml jira init`, run by the user.
+
+## 4. Download an attachment
+
+`jira-cli` cannot download attachments, and neither can Atlassian's `acli`. Call the Jira Cloud REST
+API with `curl` instead. The script lists the attachments of an issue, then saves one to a new temp
+folder. The credentials go to `curl` on stdin, so they never show in the process list or the output.
+It needs `python3`. It sends credentials only to `https://*.atlassian.net`, and refuses files over 25 MB.
+
+```sh
+set -eu -o pipefail
+KEY=DG-3 N=0                 # the issue key, and which attachment (0 is the first)
+[ -n "${JIRA_API_TOKEN:-}" ] || . ~/.config/jira-cli/env
+LIST=$(jira issue view "$KEY" --raw | python3 -c '
+import json, sys
+for i, a in enumerate(json.load(sys.stdin)["fields"].get("attachment", [])):
+    print(i, a["filename"], a["mimeType"], a["size"], a["content"], sep="\t")')
+printf '%s\n' "$LIST" | cut -f1-4
+LINE=$(printf '%s\n' "$LIST" | sed -n "$((N+1))p"); [ -n "$LINE" ] || { echo "no attachment $N on $KEY" >&2; exit 1; }
+URL=$(printf '%s' "$LINE" | cut -f5); NAME=$(printf '%s' "$LINE" | cut -f2)
+case "$URL" in https://*) H=${URL#https://}; H=${H%%/*};; *) H=;; esac      # the host; a path cannot fake it
+case "$H" in *.atlassian.net) ;; *) echo "unexpected host, not sending credentials" >&2; exit 1;; esac
+EXT=${NAME##*.}; case "$EXT" in ""|*[!A-Za-z0-9]*) EXT=bin;; esac
+D=$(mktemp -d); OUT=$D/$KEY-$N.$EXT
+printf 'user = "%s:%s"\n' "$(jira me)" "$JIRA_API_TOKEN" | curl -fsSL --proto '=https' --max-filesize 26214400 --max-time 60 -K - -o "$OUT" "$URL" || { rmdir "$D"; exit 1; }
+echo "$OUT"
+```
+
+Open the printed file with your image or file reader. Then delete its temp folder, by its literal
+path: an attachment can hold private data, and `/tmp` is often RAM.
+
+Self-hosted Jira with a PAT needs `Authorization: Bearer` instead of the `user` line, and a different
+URL check. That is untested.
