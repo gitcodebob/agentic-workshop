@@ -19,6 +19,8 @@ Talk to the user in their language, and write the worker prompts in it too.
   Your client may show them with a prefix, such as `mcp__paseo__`.
 - `git` with a remote, and `gh` authenticated for that remote.
 - Missing one of these? Stop and say which. Don't improvise another orchestration.
+- Optional: `jira` (jira-cli) or `acli` (Atlassian CLI), for ticket status (§2). Without them the
+  cycle runs the same.
 
 ## 1. Find the list, or resume
 
@@ -41,6 +43,20 @@ prompt must be self-contained. Pass attachments such as screenshots as absolute 
   when paseo has no profiles (§4).
 - Find the default branch: `git remote show origin | sed -n 's/.*HEAD branch: //p'`.
   Run `git fetch` before every branch-off.
+- Find the ticket tracker. It only matters for items that name a ticket key (`ABC-123`) or a
+  Jira link, and it also covers docs-only items you do yourself.
+  - `jira me` works (or `. ~/.config/jira-cli/env && jira me` does; then load the env file before
+    every `jira` command) → `jira-cli`. A jira-cli skill present? Follow its rules.
+  - Otherwise `acli jira auth status` reports a login → `acli`.
+  - Neither → `none`. Say so once in your plan message and carry on. Don't install or log in
+    for this; that is the user's call.
+
+  Move a ticket with `jira issue move <KEY> "<state>"`, or with
+  `acli jira workitem transition --key <KEY> --status "<state>" --yes` (check its `--help` first).
+  The states are `In Progress` when an item starts and `Done` when its PR is merged, unless the
+  project calls them otherwise. A move to an unknown state fails, and jira-cli lists the valid
+  states in the error: take the plain equivalent, or ask the user once. A failed move never holds
+  up the cycle: say so in one line and carry on.
 
 ## 3. Plan lanes
 
@@ -73,6 +89,7 @@ default branch: <branch> · max parallel: 2
 verify: fast=<command> · pre-merge=<command> · deploy=<command>
 lanes: A (<shared files>): <item> → <item> · B: <item> → <item>
 heartbeats: check <id> · resume <id> (every 5 h)
+tracker: <jira-cli | acli | none> · start=<state> · done=<state>
 -->
 ```
 
@@ -93,7 +110,8 @@ Mark finished ones `- [x] … — PR #<n>`.
    Fill in the context from your own quick look: where to start, what not to touch, what follows
    in the same lane, what the user decided, the verification commands from the foreman block, and
    the open ends that merged items in this lane left for this one.
-5. Update the foreman block and the item marker, including the profile name.
+5. Update the foreman block and the item marker, including the profile name. Move the item's
+   ticket, if it has one, to the start state (§2).
 
 ## 5. Timers
 
@@ -136,7 +154,8 @@ Act on every notification and every heartbeat.
    `git diff --stat` plus the key hunks on the default branch.
 2. Archive that workspace. Do this also when the merge failed, after you've captured the report.
    Its worktree and memory are needed for the next one.
-3. Tick the item with its PR number and update the foreman block.
+3. Tick the item with its PR number, move its ticket, if it has one, to the done state (§2), and
+   update the foreman block. A failed merge: don't tick it, and leave its ticket where it is.
 4. Report to the user in a few lines:
    - what changed;
    - the choices the worker made;
