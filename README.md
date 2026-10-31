@@ -38,7 +38,7 @@ count in its own session; it isn't stored in the TODO file or anywhere else.
 
 The mechanical steps run through one script, `scripts/foreman.py`, rather than through the
 model: picking the TODO file, writing the block and the checklist markers, renaming the workspace, moving and commenting on tickets, the heartbeat scan of all workers, checking that a PR is
-really merged, and checking the machine's free RAM, which sets the parallel limit (at most three, about 1.5 GiB each). Run it with `--help`
+really merged, and checking the machine's free RAM (zram counted, memory pressure watched), which sets the parallel limit (at most three; a regular worker counts 0.4 GiB, a heavy one 1.3 GiB). Run it with `--help`
 for the commands.
 
 ### Requirements
