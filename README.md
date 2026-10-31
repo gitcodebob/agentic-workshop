@@ -15,7 +15,7 @@ Each workspace does the whole job itself:
 - run the project's fast check once, when the diff is ready for review;
 - get a review subagent to review the diff;
 - run the pre-merge check once, on the tree merged with the default branch;
-- merge through a PR.
+- merge through a PR, with the `merge-to-main` skill when the client has it.
 
 The foreman:
 - plans the order by **file conflict**, so parallel workspaces never edit the same files;
@@ -101,8 +101,13 @@ While it runs you can:
 
 Gets the current branch or worktree into the default branch: commit open work, merge the default
 branch in, resolve conflicts, open a PR, wait for its checks and merge it. Plain `git` and `gh`, so
-any client can run it. The foreman's workers use it to merge their own work. Install it like
-`foreman-start` above.
+any client can run it. The foreman's workers use it to merge their own work, and the foreman uses
+it for docs-only items. Install it like `foreman-start` above.
+
+Commits and PR titles follow [Conventional Commits](https://www.conventionalcommits.org/), unless
+the project instructions explicitly say otherwise. When the work has a Jira key or a TODO number,
+each commit gets a `Refs: ABC-123` footer and the PR title ends in `(ABC-123)`. The foreman names
+branches the same way: `feat/ABC-123-storm-weather`.
 
 ## jira-cli
 

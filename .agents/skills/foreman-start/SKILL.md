@@ -6,7 +6,9 @@ description: Work through a TODO checklist as the foreman. Every open item gets 
 # Foreman
 
 You coordinate; the workspaces build. You do not implement code items yourself. The exception is
-a docs-only item: do it yourself on a short branch, open a PR and merge it, instead of spending a slot.
+a docs-only item: do it yourself on a short branch (named as in §4) and merge it with the
+merge-to-main skill, instead of spending a slot. No such skill? Follow its conventions with plain
+`git` and `gh` (§9, Finish step 4).
 
 Talk to the user in their language, and write the worker prompts in it too.
 
@@ -173,7 +175,11 @@ current name and the count in it. Carry on from there.
 ## 4. Start a workspace
 
 1. `create_workspace`: `isolation: worktree`, `mode: branch-off`, `baseBranch: origin/<default>`,
-   a descriptive `branchName` (`feature/…`, `fix/…`, `tweak/…`), and a short title.
+   a short title, and a `branchName` of `<type>/<ref>-<two to five words>`, for example
+   `feat/ABC-123-storm-weather` or `fix/key-legend-icons`. `<type>` is the Conventional Commits
+   type (`feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`, `ci`). `<ref>` is
+   the item's ticket key, or its number when the project numbers its TODO items; leave it out when
+   there is neither. A branch convention in the project instructions wins.
 2. Check the worktree's `git log -1` against `origin/<default>`.
 3. Pick a paseo profile for this item. Run `list_profiles` each time, because the user edits them.
    Choose the profile whose `notes` best fit the item's kind and weight. No profiles? Use your own
@@ -309,6 +315,7 @@ of a TODO list. A foreman agent coordinates the list; you deliver this one item,
 
 ## The item
 <item text, verbatim, plus absolute paths of attachments>
+Reference: <the item's ticket key or TODO number, or "none">
 
 ## Context from the foreman
 - <where to start: files, modules, earlier PRs on this subject>
@@ -344,11 +351,14 @@ of a TODO list. A foreman agent coordinates the list; you deliver this one item,
 3. Merge the default branch into your branch. Then run the project's pre-merge check ONCE on that
    merged tree (queued, if the project has a queue). Never run the deploy-level suite (end-to-end,
    recordings): the foreman runs that once at the end of the cycle.
-4. Green? Run the merge-to-main skill: commit, merge the default branch in, resolve conflicts,
-   open a PR and merge it. Don't re-run the check after the merge. If the skill still brings in
-   new commits from the default branch, run the fast check once more, not the chain. No such
-   skill? Do the same with git and `gh pr create --fill` / `gh pr merge --merge`, and never merge
-   through a failing check.
+4. Green? Run the merge-to-main skill with the reference above: commit, merge the default branch
+   in, resolve conflicts, open a PR and merge it. Don't re-run the check after the merge. If the
+   skill still brings in new commits from the default branch, run the fast check once more, not
+   the chain. No such skill? Do the same with git and `gh`, and never merge through a failing
+   check. Unless the project instructions say otherwise, commit in Conventional Commits with a
+   `Refs: <reference>` footer, open the PR with `gh pr create --fill --title '<type>(<scope>):
+   <summary> (<reference>)'` and merge it with `gh pr merge --merge`. No reference? Leave out the
+   footer and the parentheses.
 5. End with a short report:
    - the PR number and whether it is merged;
    - the choices you made;

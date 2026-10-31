@@ -18,6 +18,14 @@ Six steps, in this order. Each step gates the next; skip none.
 gh repo view --json defaultBranchRef -q .defaultBranchRef.name
 ```
 
+- Commit messages and the PR title follow [Conventional Commits](https://www.conventionalcommits.org/):
+  `<type>(<scope>): <summary>`, with a type such as `feat`, `fix`, `chore`, `docs`, `refactor`,
+  `test`, `perf`, `build` or `ci`. Only an explicit rule in the project instructions (CLAUDE.md,
+  AGENTS.md, CONTRIBUTING.md) replaces this default. The style of older commits doesn't.
+- Find the work's reference, called `<ref>` below: its Jira key (`ABC-123`), or its number when
+  the project numbers its TODO items. Take it from the task you were given, or from the branch
+  name (`feat/ABC-123-…`). Never guess one. No reference? Leave out every `<ref>` part below.
+
 ## 1. Stop if you are on the default branch
 
 ```bash
@@ -34,10 +42,17 @@ git status
 ```
 
 Changed or untracked files?
-- Read `git diff` (staged and unstaged) and `git log --oneline -5` for this repo's commit style.
+- Read `git diff` (staged and unstaged).
 - Stage files by name (no `git add -A` / `git add .` without checking the list: an `.env` or a
   secret doesn't belong in the commit).
-- Write a message that sums up the **why**, not a list of files.
+- Write a message in the convention from step 0 that sums up the **why**, not a list of files.
+  With a `<ref>`, end it with a `Refs: <ref>` footer, above any co-author lines:
+
+  ```
+  feat(metrics): push metrics on shutdown
+
+  Refs: ABC-123
+  ```
 - Never skip a pre-commit hook (`--no-verify`). The hook fails? Fix the cause and commit again.
 
 A clean tree? Skip this step.
@@ -78,8 +93,13 @@ git commit --no-edit
 
 ```bash
 git push -u origin HEAD
-gh pr create --fill --base <default>
+gh pr create --fill --base <default> --title "$(cat <title-file>)"
 ```
+
+The title is a Conventional Commits header for the branch's work as a whole, ending in ` (<ref>)`
+when there is one: `feat(metrics): push metrics on shutdown (ABC-123)`. Write it to a file first,
+so quotes or backticks in it can't break the command. `--title` overrides the title `--fill`
+takes from the commits; the body still comes from them.
 
 Check the PR before you merge it:
 
