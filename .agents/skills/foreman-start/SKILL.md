@@ -107,11 +107,20 @@ don't read the whole codebase.
 - Never run two items at once that each change behaviour guarded by snapshot or golden tests.
   One of them would have to re-baseline blindly.
 - At most three workspaces at a time, unless the user sets another limit. At most one of them
-  may be browser-heavy.
+  may be heavy (see below).
 - Run `capacity` before you start the first workspace and before you raise the limit. It reports
-  cores, load, the memory available now (about 1.5 GiB per worker), swap, whether /tmp is a tmpfs
-  (then it counts as RAM; caches there grow with every new worktree) and suggests a limit of at
-  most three. A warning? Clean the stale caches it lists first, and keep to its suggestion.
+  cores, load, the memory available now, what zram could still free by compressing cold pages
+  (counted with a haircut, and not at all while the machine is under pressure), memory pressure
+  and swap-in, whether /tmp is a tmpfs (then it counts as RAM; caches there grow with every new
+  worktree), the headroom left after a reserve for the system, and how many workers fit in it. It
+  suggests a limit of at most three. A warning? Clean the stale caches it lists first, and keep to
+  its suggestion.
+- You decide which items are heavy, `capacity` can't see it: a worker that runs headless Chrome or
+  a browser suite, or a large test suite that peaks past 1 GiB. Judge it from the item and the
+  project instructions. A regular worker counts 0.4 GiB, a heavy one 1.3 GiB. Keep the sum over
+  the workers that run and the one you are about to start within the headroom, stay at or under
+  the suggested limit, and never run two heavy ones. Workers that already run are in the available
+  memory at their current size, not at their peak.
 - The project may deviate from that: heavy test stages, a browser suite, a build that needs
   several GiB, or limits of the machine it runs on. Read the project instructions (CLAUDE.md,
   AGENTS.md) for such notes before you settle the limit. They win over `capacity`: lower the limit

@@ -11,7 +11,8 @@ one line and never stops the cycle. No command waits on stdin, and every outside
   ticket     detect | move KEY start|done | comment KEY TEXT   [--todo TODO]
   check      TODO                            one scan of every running workspace and open question
   verify-pr  N [--todo TODO]                 is PR #N really merged, and what did it change
-  capacity                                   cores, memory, /tmp, running agents, a parallel limit
+  capacity                                   cores, memory (zram counted), pressure, /tmp, running agents,
+                                             room for light and heavy workers, a parallel limit
 
 Open questions to the user are plain bullets under a `## Waiting on the user` heading in the TODO
 file. `state show` lists them; `check` flags one whose `default: <option> by YYYY-MM-DD HH:MM +HH:MM`
@@ -626,7 +627,67 @@ def meminfo():
 
 
 DEFAULT_PARALLEL = 3
-WORKER_GIB = 1.5  # one worker with a dev server, tests and a browser needs about a core and this much RAM
+LIGHT_GIB = 0.4  # a regular worker peaks at about this much RAM
+HEAVY_GIB = 1.3  # one with headless Chrome or a large test suite; the foreman decides which items are heavy
+RESERVE_GIB = 0.5  # kept free for the system; at least a tenth of the total
+PSI_SOME_WARN = 10.0  # % of the last minute that some task stalled on memory
+PSI_FULL_NO_ZRAM = 5.0  # % of the last 10 s that every task stalled: zram is working hard already
+SWAPIN_BUSY = 1000  # pages per second swapped in, about 4 MiB/s: the machine is thrashing
+
+
+def read_pressure():
+    """/proc/pressure/memory as {"some": {"avg10": …, "avg60": …}, "full": {…}}; {} without PSI."""
+    pressure = {}
+    try:
+        for line in Path("/proc/pressure/memory").read_text().splitlines():
+            kind, *fields = line.split()
+            pressure[kind] = {k: float(v) for k, v in (f.split("=") for f in fields) if k.startswith("avg")}
+    except (OSError, ValueError):
+        return {}
+    return pressure
+
+
+def swap_in_rate(seconds=1.0):
+    """Pages swapped in per second, over a short sample; None when /proc/vmstat can't say."""
+    def pswpin():
+        for line in Path("/proc/vmstat").read_text().splitlines():
+            if line.startswith("pswpin "):
+                return int(line.split()[1])
+    try:
+        before, start = pswpin(), time.monotonic()
+        time.sleep(seconds)
+        after, end = pswpin(), time.monotonic()
+    except (OSError, ValueError):
+        return None
+    return None if before is None or after is None else (after - before) / (end - start)
+
+
+def zram_room():
+    """(GiB that zram can still take, compression ratio) over the zram devices in use as swap, or
+    None without any. The ratio is clamped, so a stretch of data that compresses well doesn't
+    promise more than the next stretch delivers. A resident-memory limit on a device caps its room."""
+    try:
+        swaps = {l.split()[0] for l in Path("/proc/swaps").read_text().splitlines()[1:] if l.strip()}
+    except OSError:
+        return None
+    devs = []
+    for dev in sorted(Path("/sys/block").glob("zram*")):
+        if f"/dev/{dev.name}" not in swaps:
+            continue
+        try:
+            size = int((dev / "disksize").read_text())
+            orig, compr, used, limit = (int(x) for x in (dev / "mm_stat").read_text().split()[:4])
+        except (OSError, ValueError):
+            continue
+        devs.append((size, orig, compr, used, limit))
+    if not devs:
+        return None
+    orig, compr = sum(d[1] for d in devs), sum(d[2] for d in devs)
+    ratio = orig / compr if compr and orig >= 2**26 else 2.0  # under 64 MiB there is too little data to tell
+    ratio = min(3.0, max(1.5, ratio))
+    room = sum(max(0, min(size - o, (limit - used) * ratio) if limit else size - o)
+               for size, o, _, used, limit in devs)
+    return room / 2**30, ratio
 
 
 def cmd_capacity(a):
@@ -640,17 +701,56 @@ def cmd_capacity(a):
     du = shutil.disk_usage("/tmp")
     agents, _ = paseo_json(["ls", "-g"])
     busy = sum(1 for x in agents or [] if x.get("status") == "running")
+    psi = read_pressure()
+    some60, full10 = psi.get("some", {}).get("avg60"), psi.get("full", {}).get("avg10")
+    swapin = swap_in_rate()
+    thrashing = swapin is not None and swapin > SWAPIN_BUSY
+    stressed = thrashing or (full10 or 0) > PSI_FULL_NO_ZRAM
 
     # Size on the memory that is free now, not the total: other processes already hold their share.
-    fit = max(1, min(cores, int(avail / WORKER_GIB)))
+    # Behind a reserve for the system, the kernel can free more by compressing cold anonymous pages
+    # into zram: half of the anonymous memory, no more than zram has room for, and each page stays
+    # in RAM at 1/ratio of its size. None of that while the machine is already struggling.
+    reserve = max(RESERVE_GIB, 0.1 * total)
+    zram = zram_room()
+    bonus = 0.0
+    if zram and not stressed:
+        room, ratio = zram
+        bonus = min(room, 0.5 * mem.get("AnonPages", 0)) * (1 - 1 / ratio)
+    headroom = max(0.0, avail - reserve + bonus)
+    light = int(headroom / LIGHT_GIB)
+    fit = max(1, min(cores, light))
+    if headroom >= HEAVY_GIB:
+        extra = int((headroom - HEAVY_GIB) / LIGHT_GIB)
+        fits = f"{light} light, or 1 heavy" + (f" + {extra} light" if extra else "")
+    else:
+        fits = f"{light} light, no heavy (it needs {HEAVY_GIB} GiB)"
+
+    if zram:
+        zram_line = f"zram: {zram[0]:.1f} GiB room, compresses {zram[1]:.1f}:1 · counted: +{bonus:.1f} GiB"
+        zram_line += " (not while under pressure)" if stressed else ""
+    else:
+        zram_line = "zram: not in use as swap"
+    if psi:
+        stall = f"memory stalls some {some60:.1f}% (60 s), full {full10:.1f}% (10 s)"
+    else:
+        stall = "no PSI on this kernel"
     out(f"cores: {cores} · load(1m): {load:.1f} · running agents: {busy if agents is not None else '?'}",
         f"memory: {total:.1f} GiB total, {avail:.1f} GiB available · swap used: {swap_used:.1f} GiB",
+        zram_line,
+        f"pressure: {stall}" + (f" · swap-in {swapin:.0f} pages/s" if swapin is not None else ""),
+        f"headroom: {headroom:.1f} GiB (available {avail:.1f} − reserve {reserve:.1f} + zram {bonus:.1f})",
+        f"a worker counts {LIGHT_GIB} GiB, a heavy one (headless Chrome, a large test suite) {HEAVY_GIB} GiB;"
+        " at most one heavy at a time",
+        f"fits in memory: {fits}",
         f"/tmp: {'tmpfs (counts as RAM)' if tmp_tmpfs else fstype or '?'} · "
         f"{du.used / 2**30:.1f} of {du.total / 2**30:.1f} GiB used")
     warn = []
-    if avail < 1.0:
-        warn.append("less than 1 GiB available")
-    if swap_used > total / 2:
+    if some60 is not None and some60 > PSI_SOME_WARN:
+        warn.append(f"memory pressure ({some60:.0f}% of the last minute stalled)")
+    if thrashing:
+        warn.append(f"swap is thrashing ({swapin:.0f} pages/s in)")
+    if not psi and swap_used > total / 2:  # without PSI the size of the swap is all there is to go by
         warn.append("heavy swap use")
     if load > cores * 1.5:
         warn.append("load well above the core count")
