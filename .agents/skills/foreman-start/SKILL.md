@@ -21,10 +21,9 @@ Talk to the user in their language, and write the worker prompts in it too.
   Your client may show them with a prefix, for example `mcp__paseo__`. Deferred? Load them first,
   the way your client loads deferred tools.
 - `git` with a remote, and `gh` authenticated for that remote.
-- Workers that may merge without a prompt. In Claude Code's auto mode an unreviewed merge is
-  blocked by default ("Merge Without Review"), and then every PR waits for the user. The README's
-  "Permissions for merging" lists the settings. Unsure whether they are set? Say so once in your
-  plan message; don't hold up the cycle for it.
+- Workers that may merge without a prompt. Run `permissions` once: it checks the three allow rules
+  from the README's "Permissions for merging". MISSING? Put its fix in your plan message, as a
+  question (Asking the user), and start anyway: until it's set, finished PRs wait for the user.
 - `python3` and the `paseo` CLI, for the scripts below.
 - Missing one of these? Stop and say which. Don't improvise another orchestration.
 - Optional: `jira` (jira-cli) or `acli` (Atlassian CLI), for ticket status (§2). Without them the
@@ -257,14 +256,12 @@ waits on you: answer in one line. Lines starting with `!` or `*` need you. Look 
    `name <done> <total>`. A failed merge: `state unmark <TODO> <item>` instead; the item stays
    open, its ticket stays where it is, and the count doesn't change.
 
-   **The merge was denied by a permission check or classifier**, and the PR is otherwise ready?
-   Review its diff yourself; then you may merge it with the bare command `gh pr merge <n> --merge`,
-   alone in its call (merge-to-main, step 5). That is not a workaround: it is the form an allow rule
-   matches. Denied again? Stop merging, by any route. Put one bullet under `Waiting on the user`
-   that lists every PR waiting on a merge, with both ways out: they merge them, or they add the
-   settings from the README's "Permissions for merging". Keep closing out and starting items
-   meanwhile; each new PR joins that bullet. Once merges work again, merge the open PRs one by
-   one, the ones that touch the fewest shared files first, and `state done` each.
+   **The merge was denied**, and the PR is otherwise ready? Don't merge it another way. Run
+   `permissions` and put one bullet under `Waiting on the user` that lists every PR waiting on a
+   merge, with both ways out: they merge them, or they add the rules it names. Keep closing out
+   and starting items meanwhile; each new PR joins that bullet. Once the rules are set, review and
+   merge the open PRs yourself (`gh pr merge <n> --merge`), the ones that touch the fewest shared
+   files first, and `state done` each.
 4. Report to the user in a few lines:
    - what changed;
    - the choices the worker made;
@@ -371,9 +368,9 @@ Reference: <the item's ticket key or TODO number, or "none">
    check. Unless the project instructions say otherwise, commit in Conventional Commits with a
    `Refs: <reference>` footer, open the PR with `gh pr create --fill --title '<type>(<scope>):
    <summary> (<reference>)'` and merge it with `gh pr merge <n> --merge`. No reference? Leave out
-   the footer and the parentheses. Run that merge as a bare command, alone in its call (no pipe,
-   no chain). A permission check or classifier denies it? Don't try another route: leave the PR
-   open and report its number and the denial. The foreman takes it from there.
+   the footer and the parentheses. Keep a merge call to `gh`, `git fetch` and read-only commands
+   such as `tail`. The merge is denied? Don't try another route: leave the PR open and report its
+   number and the denial. The foreman takes it from there.
 5. End with a short report:
    - the PR number and whether it is merged;
    - the choices you made;
