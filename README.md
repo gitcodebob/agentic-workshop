@@ -109,6 +109,49 @@ the project instructions explicitly say otherwise. When the work has a Jira key 
 each commit gets a `Refs: ABC-123` footer and the PR title ends in `(ABC-123)`. The foreman names
 branches the same way: `feat/ABC-123-storm-weather`.
 
+### Permissions for merging
+
+The foreman's workers merge their own PRs, with no one there to approve a prompt. Claude Code's
+auto mode blocks that by default: its classifier has a "Merge Without Review" rule for any PR no
+human approved. Allow it in two places; the first covers the command, the second the classifier.
+
+1. **The command**, in the project's `.claude/settings.json` (shared with everyone who works on
+   it) or in your own `~/.claude/settings.json`:
+
+   ```json
+   {
+     "permissions": {
+       "allow": ["Bash(gh pr merge *)", "Bash(gh pr view *)"]
+     }
+   }
+   ```
+
+   An allow rule resolves before the classifier, but only when every part of a command is allowed.
+   `gh pr merge 12 --merge 2>&1 | tail -3; gh pr view 12` is covered by these two rules plus
+   `tail`, a built-in read-only command; add a rule for anything else you chain. A read-only
+   command can still wait for the classifier in a session with server-side review, so the skills
+   run the merge bare, in its own call.
+
+2. **The classifier**, in `~/.claude/settings.json` only: Claude Code ignores `autoMode` in project
+   settings. Name your repositories and your review gate. Keep `"$defaults"`, or you drop every
+   built-in rule:
+
+   ```json
+   {
+     "autoMode": {
+       "allow": [
+         "$defaults",
+         "Merge Without Review exception: merging a PR in github.com/<owner>/<repo> with `gh pr merge <n> --merge` is allowed when the agent opened that PR in this session and the project's pre-merge check passed. A review subagent and that check are the review gate; there is no human reviewer."
+       ]
+     }
+   }
+   ```
+
+   Check the result with `claude auto-mode config`. Other clients: allow `gh pr merge` in their own
+   approval policy (Codex: the rules or sandbox settings of the profile the workers use).
+
+Without either, every PR stays open and the foreman lists them under `Waiting on the user`.
+
 ## jira-cli
 
 Gets an agent working with Jira through [jira-cli](https://github.com/ankitpokhrel/jira-cli), the
