@@ -10,9 +10,8 @@ Six steps, in this order. Each step gates the next; skip none.
 ## 0. Requirements
 
 - `git` and the GitHub CLI `gh`, logged in (`gh auth status`).
-- Permission to merge without a prompt, when no one is there to approve it. Claude Code's auto
-  mode blocks an unreviewed merge by default; the README's "Permissions for merging" shows the
-  settings that allow it.
+- Permission to merge without a prompt, when no one is there to approve it: the three allow rules
+  in the README's "Permissions for merging".
 - Work in the current directory as it is. A normal checkout or a `git worktree` makes no
   difference to the steps below.
 - Find the default branch, called `<default>` below:
@@ -121,20 +120,13 @@ gh pr merge <n> --merge
 Use `--merge` (not `--squash` / `--rebase`) unless the user or the repo's convention says
 otherwise. Don't delete the branch (leave out `--delete-branch`); that is the user's call.
 
-**Run the merge as this bare command, alone in its own call.** No pipe (`| tail`), no `;` or `&&`
-chain, no `2>&1`. A permission allow rule such as `Bash(gh pr merge *)` in Claude Code matches a
-chained command only when every part of it is allowed; otherwise the client decides on its own,
-and Claude Code's auto mode blocks an unreviewed merge by default ("Merge Without Review").
-Check the result in a separate call:
+Check the result with `gh pr view <n> --json state,mergeCommit`. Keep a merge call to `gh pr merge`,
+`gh pr view`, `git fetch` and read-only commands such as `tail`: those are what the project's allow
+rules cover (README, "Permissions for merging"). Anything else in the same call, such as a script,
+sends the whole call to Claude Code's auto-mode classifier, which blocks an unreviewed merge.
 
-```bash
-gh pr view <n> --json state,mergeCommit
-```
-
-**The merge is denied by a permission check or a classifier?** Don't try another route to the same
-merge: no other command form, script, API call or subagent. Leave the PR open, go to step 6 and
-report the PR number, the exact denial, and that the merge needs either the user or a permission
-setting (README, "Permissions for merging").
+**The merge is denied?** Don't try another route to it: no other command form, script, API call or
+subagent. Leave the PR open and report its number and the denial (step 6).
 
 Afterwards run `git fetch origin`. Don't check out `<default>` here: in a worktree it is usually
 checked out in the main checkout, and git refuses.
@@ -153,4 +145,5 @@ can't read from the PR diff alone. No longer report: the PR and the merge commit
 - Don't merge with `--no-verify` or skip hooks.
 - Don't go on to step 5 while step 4 left a file with conflict markers.
 - Don't delete the branch, and never force-push to the default branch.
-- Don't chain the merge with other commands, and don't work around a denied merge.
+- Don't put anything but `gh`, `git fetch` and read-only commands in a merge call, and don't work
+  around a denied merge.

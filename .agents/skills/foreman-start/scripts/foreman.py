@@ -11,6 +11,7 @@ one line and never stops the cycle. No command waits on stdin, and every outside
   ticket     detect | move KEY start|done | comment KEY TEXT   [--todo TODO]
   check      TODO                            one scan of every running workspace and open question
   verify-pr  N [--todo TODO]                 is PR #N really merged, and what did it change
+  permissions                                do the Claude Code settings let workers merge on their own
   capacity                                   cores, memory (zram counted), pressure, /tmp, running agents,
                                              room for light and heavy workers, a parallel limit
 
@@ -613,6 +614,87 @@ def cmd_verify_pr(a):
     out(f"key hunks: gh pr diff {a.pr}  (or git show {sha[:9]} -- <file>)")
 
 
+# ---------------------------------------------------------------------------- permissions
+
+# The commands a worker runs to merge its own PR. Claude Code's auto mode blocks an unreviewed
+# merge ("Merge Without Review") unless an allow rule approves every part of the command.
+MERGE_COMMANDS = ("gh pr merge", "gh pr view", "git fetch")
+
+
+def bash_prefix(rule):
+    """`Bash(gh pr *)` → `gh pr`; `Bash(gh pr merge:*)` → `gh pr merge`; `Bash` → ``; else None."""
+    rule = rule.strip()
+    if rule in ("Bash", "Bash(*)"):
+        return ""
+    m = re.fullmatch(r"Bash\((.*)\)", rule)
+    if not m:
+        return None
+    body = m.group(1).strip()
+    for tail in (" *", ":*"):
+        if body.endswith(tail) and "*" not in body[: -len(tail)]:
+            return body[: -len(tail)].strip()
+    return None  # an exact or mid-pattern rule can't cover every form of the command
+
+
+def user_allow(path):
+    try:
+        return [r for r in json.loads(path.read_text()).get("permissions", {}).get("allow", []) if isinstance(r, str)]
+    except (OSError, ValueError):
+        return []
+
+
+def covers(prefix, command):
+    return prefix is not None and (prefix == "" or command == prefix or command.startswith(prefix + " "))
+
+
+def cmd_permissions(a):
+    top = run(["git", "rev-parse", "--show-toplevel"])[1].strip() or os.getcwd()
+    # In a worktree, also read the main checkout: an uncommitted rule there reaches this session,
+    # but not a fresh worker worktree branched off the remote.
+    first = run(["git", "worktree", "list", "--porcelain"])[1].split("\n", 1)[0]
+    main = first[len("worktree "):] if first.startswith("worktree ") else top
+    dirs = [top] + ([main] if main != top else [])
+    files = [Path(d) / ".claude" / n for d in dirs for n in ("settings.json", "settings.local.json")]
+    files.append(Path.home() / ".claude/settings.json")
+    rules = {"allow": [], "ask": [], "deny": []}
+    committed = set()
+    for f in files:
+        try:
+            perms = json.loads(f.read_text()).get("permissions", {})
+        except (OSError, ValueError):
+            continue
+        for kind in rules:
+            rules[kind] += [r for r in perms.get(kind, []) if isinstance(r, str)]
+        if f.name == "settings.json" and f.parent.parent != Path.home():
+            shown = run(["git", "-C", str(f.parent.parent), "show", f"origin/HEAD:.claude/settings.json"])[1]
+            try:
+                committed |= set(json.loads(shown).get("permissions", {}).get("allow", []))
+            except ValueError:
+                pass
+    # Auto mode drops a blanket `Bash` / `Bash(*)` allow rule, so it doesn't count here.
+    allow = [p for p in map(bash_prefix, rules["allow"]) if p]
+    missing = [c for c in MERGE_COMMANDS if not any(covers(p, c) for p in allow)]
+    for kind in ("deny", "ask"):
+        for r in rules[kind]:
+            for c in MERGE_COMMANDS:
+                if covers(bash_prefix(r), c):
+                    out(f"! {c}: the {kind} rule {r} wins over any allow rule; workers can't merge on their own")
+    if not missing:
+        out("merge permissions: OK (" + ", ".join(MERGE_COMMANDS) + ")")
+        home = [p for p in map(bash_prefix, user_allow(Path.home() / ".claude/settings.json")) if p]
+        pushed = [p for p in map(bash_prefix, committed) if p]
+        loose = [c for c in MERGE_COMMANDS
+                 if not any(covers(p, c) for p in home) and not any(covers(p, c) for p in pushed)]
+        if loose:
+            out(f"  not yet on origin: {', '.join(loose)} → ask the user to commit and push .claude/settings.json,"
+                " or workers on another machine or clone miss them")
+        return
+    snippet = ", ".join(f'"Bash({c} *)"' for c in missing)
+    out(f"merge permissions: MISSING {', '.join(missing)}",
+        f"→ ask the user to add to {Path(top) / '.claude/settings.json'} under permissions.allow: {snippet}",
+        "  Without them Claude Code's auto mode may block each merge, and every PR waits for the user.")
+
+
 # ---------------------------------------------------------------------------- capacity
 
 def meminfo():
@@ -814,6 +896,9 @@ def main():
     p = sub.add_parser("verify-pr", help="is the PR merged, and what did it change")
     p.add_argument("pr"); p.add_argument("--todo"); p.add_argument("--limit", type=int, default=12)
     p.set_defaults(fn=cmd_verify_pr)
+
+    p = sub.add_parser("permissions", help="may the workers merge their own PRs without a prompt")
+    p.set_defaults(fn=cmd_permissions)
 
     p = sub.add_parser("capacity", help="machine headroom and a parallel limit")
     p.add_argument("--caches", action="store_true", help="also list the largest entries in /tmp")
